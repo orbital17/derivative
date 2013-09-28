@@ -1,0 +1,3 @@
+
+class CantFindAntiDerivativeException(Exception):
+    pass

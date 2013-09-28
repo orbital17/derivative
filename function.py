@@ -1,5 +1,6 @@
 import math
 from functools import reduce
+import errors
 
 
 class Function:
@@ -7,7 +8,16 @@ class Function:
     def derivative(self, var='x'):
         if hasattr(var, '__iter__'):
             return reduce(Function.derivative, [self] + var)
-        return self._der(var)
+        return self._der(self._check_or_create_var(var))
+
+    def antiderivative(self, var='x'):
+        var = self._check_or_create_var(var)
+        if not self.depends_on(var):
+            return self * var
+        return self._antider(var)
+
+    def depends_on(self, var):
+        return self._depends_on(self._check_or_create_var(var))
 
     @staticmethod
     def _create_const(num):
@@ -15,6 +25,15 @@ class Function:
             return Funminus(Fconst(-num))
         else:
             return Fconst(num)
+
+    @staticmethod
+    def _check_or_create_var(var):
+        if var.__class__ == Fvar:
+            return var
+        elif var.__class__ == str:
+            return Fvar(var)
+        else:
+            raise ValueError("var should be Fvar or string")
 
     def _check_for_num(self, num):
         if isinstance(num, (int, float, long)):
@@ -153,6 +172,12 @@ class Fconst(Function):
     def _der(self, var):
         return Fconst(0)
 
+    def _antider(self, var):
+        return self * var
+
+    def _depends_on(self, var):
+        return False
+
 
 class Fvar(Function):
 
@@ -180,6 +205,15 @@ class Fvar(Function):
         else:
             return Fconst(0)
 
+    def _antider(self, var):
+        if self == var:
+            return self ** 2 / 2
+        else:
+            return self * var
+
+    def _depends_on(self, var):
+        return self == var
+
 
 class Fsum(Function):
 
@@ -199,6 +233,12 @@ class Fsum(Function):
     def _der(self, var):
         return self.left.derivative(var) + self.right.derivative(var)
 
+    def _antider(self, var):
+        return self.left._antider(var) + self.right._antider(var)
+
+    def _depends_on(self, var):
+        return self.left.depends_on(var) or self.right.depends_on(var)
+
 
 class Fsub(Function):
 
@@ -213,10 +253,16 @@ class Fsub(Function):
         return self.left.brace_repr(self) + ' - ' + self.right.brace_repr(self)
 
     def __eq__(self, other):
-        return other.__class__ == Fsum and self.left == other.left and self.right == other.right
+        return other.__class__ == Fsub and self.left == other.left and self.right == other.right
 
     def _der(self, var):
         return self.left.derivative(var) - self.right.derivative(var)
+
+    def _antider(self, var):
+        return self.left._antider(var) - self.right._antider(var)
+
+    def _depends_on(self, var):
+        return self.left.depends_on(var) or self.right.depends_on(var)
 
 
 class Fmult(Function):
@@ -237,6 +283,17 @@ class Fmult(Function):
     def _der(self, var):
         return self.left.derivative(var) * self.right + self.left * self.right.derivative(var)
 
+    def _antider(self, var):
+        if not self.left.depends_on(var):
+            return self.left * self.right.antiderivative(var)
+        elif not self.right.depends_on(var):
+            return self.left.antiderivative(var) * self.right
+        else:
+            raise errors.CantFindAntiDerivativeException()
+
+    def _depends_on(self, var):
+        return self.left.depends_on(var) or self.right.depends_on(var)
+
 
 class Fdiv(Function):
 
@@ -254,7 +311,17 @@ class Fdiv(Function):
         return other.__class__ == Fdiv and self.numerator == other.numerator and self.denominator == other.denominator
 
     def _der(self, var):
-        return (self.numerator.derivative(var) * self.denominator - self.numerator * self.denominator.derivative(var)) / self.denominator ** 2
+        return ((self.numerator.derivative(var) * self.denominator - self.numerator * self.denominator.derivative(var))
+                / self.denominator ** 2)
+
+    def _antider(self, var):
+        if not self.denominator.depends_on(var):
+            return self.numerator.antiderivative(var) * self.denominator
+        else:
+            raise errors.CantFindAntiDerivativeException()
+
+    def _depends_on(self, var):
+        return self.numerator.depends_on(var) or self.denominator.depends_on(var)
 
 
 class Fpower(Function):
@@ -280,6 +347,18 @@ class Fpower(Function):
         else:
             return self * (Fln(self.f) * self.power.derivative(var) + (self.power * self.f.derivative(var)) / self.f)
 
+    def _depends_on(self, var):
+        return self.f.depends_on(var) or self.power.depends_on(var)
+
+    def _antider(self, var):
+        if self.f == var and self.power.__class__ == Fconst:
+            c = Fconst(self.power.c + 1)
+            return self.f ** c / c
+        elif self.f.__class__ == Fconst and self.power == var:
+            return self / math.ln(self.f.c)
+        else:
+            raise errors.CantFindAntiDerivativeException()
+
 
 class Fsin(Function):
 
@@ -297,6 +376,15 @@ class Fsin(Function):
 
     def _der(self, var):
         return Fcos(self.arg) * self.arg.derivative(var)
+
+    def _depends_on(self, var):
+        return self.arg.depends_on(var)
+
+    def _antider(self, var):
+        if self.arg == var:
+            return -Fcos(var)
+        else:
+            raise errors.CantFindAntiDerivativeException()
 
 
 class Fcos(Function):
@@ -316,6 +404,15 @@ class Fcos(Function):
     def _der(self, var):
         return -Fsin(self.arg) * self.arg.derivative(var)
 
+    def _depends_on(self, var):
+        return self.arg.depends_on(var)
+
+    def _antider(self, var):
+        if self.arg == var:
+            return Fsin(var)
+        else:
+            raise errors.CantFindAntiDerivativeException()
+
 
 class Funminus(Function):
 
@@ -333,6 +430,12 @@ class Funminus(Function):
 
     def _der(self, var):
         return -self.arg.derivative(var)
+
+    def _depends_on(self, var):
+        return self.arg.depends_on(var)
+
+    def _antider(self, var):
+        return -self.arg.antiderivative()
 
 
 class Fln(Function):
@@ -352,6 +455,15 @@ class Fln(Function):
     def _der(self, var):
         return self.arg.derivative(var) / self.arg
 
+    def _depends_on(self, var):
+        return self.arg.depends_on(var)
+
+    def _antider(self, var):
+        if self.arg == var:
+            return var * self - var
+        else:
+            raise errors.CantFindAntiDerivativeException()
+
 
 class Flog(Function):
 
@@ -366,10 +478,20 @@ class Flog(Function):
         return 'log[' + repr(self.base) + ']' + self.arg.brace_repr(self)
 
     def __eq__(self, other):
-        return other.__class__ == Fln and self.arg == other.arg and self.base == other.base
+        return (other.__class__ == Flog and self.arg == other.arg and self.base == other.base or
+                other._class__ == Fln and self.base == math.e and self.arg == other.arg)
 
     def _der(self, var):
         return (Fln(self.arg).derivative(var) - Fln(self.base).derivative(var) * self) / Fln(self.base)
+
+    def _depends_on(self, var):
+        return self.arg.depends_on(var) or self.base.depends_on(var)
+
+    def _antider(self, var):
+        if self.arg == var and self.base.__class__ == Fconst:
+            return var * self - math.log(math.e, self.base.c) * var
+        else:
+            raise errors.CantFindAntiDerivativeException()
 
 
 var, sin, cos, ln, log = Fvar, Fsin, Fcos, Fln, Flog

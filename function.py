@@ -120,9 +120,6 @@ class Function:
             return self.arg
         return Funminus(self)
 
-    def __eq__(self, other):
-        raise Exception
-
     def _priority(self):
         priority = {
             Fsum: 1,
@@ -152,6 +149,77 @@ class Function:
     def is_one(self):
         return self.__class__ == Fconst and self.c == 1
 
+    def __call__(self, val=None, **args):
+        raise NotImplementedError
+
+    def __repr__(self):
+        raise NotImplementedError
+
+    def __eq__(self, other):
+        raise NotImplementedError
+
+    def _der(self, var):
+        raise NotImplementedError
+
+    def _antider(self, var):
+        raise NotImplementedError
+
+    def _depends_on(self, var):
+        raise NotImplementedError
+
+    @staticmethod
+    def unite_int_or_dict(first, second):
+        'Needed for get_multipliers'
+        if first == None:
+            return second
+        if second == None:
+            return first
+        if first.__class__ == second.__class__ == int:
+            return first + second
+        if first.__class__ == second.__class__ == dict:
+            result = {}
+            for i in first:
+                result[i] = Function.unite_int_or_dict(first[i], second.get(i))
+            for i in second:
+                if not first.has_key(i):
+                    result[i] = second[i]
+            return result
+
+    def __hash__(self):
+        return hash(repr(self))
+
+    def get_multipliers(self):
+        'Calling only if func has one multiplier, else will be called overloads'
+        return {"up": {self: 1}, "down": {}}
+
+    @staticmethod
+    def inverse_multipliers(multipliers):
+        m = multipliers.copy()
+        t = m["down"]
+        m["down"] = m["up"]
+        m ["up"] = t
+        return m
+
+    def simplify_mult(self):
+        multipliers = self.get_multipliers()
+        coef = 1
+        up = create_const(1)
+        down = create_const(1)
+        for i in multipliers["up"]:
+            if i.__class__ == Fconst:
+                coef *= i.c ** multipliers["up"][i]
+            else:
+                diff = multipliers["up"][i] - (multipliers["down"][i] if multipliers["down"].has_key(i) else 0)
+                if diff > 0:
+                    up *= i ** diff
+                elif diff < 0:
+                    down *= i ** (-diff)
+        for i in multipliers["down"]:
+            if i.__class__ == Fconst:
+                coef /= float(i.c) ** multipliers["down"][i]
+            elif not multipliers["up"].has_key(i):
+                down *= i ** multipliers["down"][i]
+        return coef * up / down
 
 class Fconst(Function):
 
@@ -294,6 +362,13 @@ class Fmult(Function):
     def _depends_on(self, var):
         return self.left.depends_on(var) or self.right.depends_on(var)
 
+    def get_multipliers(self):
+        child_results = {}
+        child_results["left"] = self.left.get_multipliers()
+        child_results["right"] = self.right.get_multipliers()
+        multipliers = self.unite_int_or_dict(child_results["left"], child_results["right"])
+        return multipliers
+
 
 class Fdiv(Function):
 
@@ -323,6 +398,12 @@ class Fdiv(Function):
     def _depends_on(self, var):
         return self.numerator.depends_on(var) or self.denominator.depends_on(var)
 
+    def get_multipliers(self):
+        child_results = {}
+        child_results["num"] = self.numerator.get_multipliers()
+        child_results["den"] = self.denominator.get_multipliers()
+        multipliers = self.unite_int_or_dict(child_results["num"], self.inverse_multipliers(child_results["den"]))
+        return multipliers
 
 class Fpower(Function):
 
@@ -358,6 +439,18 @@ class Fpower(Function):
             return self / math.ln(self.f.c)
         else:
             raise errors.CantFindAntiDerivativeException()
+
+    def get_multipliers(self):
+        if self.power.__class__ == Funminus:
+            inverse = Fpower(self.f, self.power.arg).get_multipliers()
+            return self.inverse_multipliers(inverse)
+        if self.power.__class__ == Fconst:
+            arg_multipliers = self.f.get_multipliers()
+            for i in arg_multipliers:
+                for j in arg_multipliers[i]:
+                    arg_multipliers[i][j] = arg_multipliers[i][j] * self.power.c
+            return arg_multipliers
+        raise NotImplementedError()
 
 
 class Fsin(Function):
@@ -500,3 +593,5 @@ var, sin, cos, ln, log = Fvar, Fsin, Fcos, Fln, Flog
 def create_function(function):
     varnames = function.func_code.co_varnames
     return function(*(Fvar(i) for i in varnames))
+
+create_const = Function._create_const

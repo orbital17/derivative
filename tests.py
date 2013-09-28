@@ -35,7 +35,7 @@ class TestDer(unittest.TestCase):
 
     def test_antider_const(self):
         const = 3
-        fconst = Fconst(const)
+        fconst = create_const(const)
         self.assertEqual(fconst.antiderivative(self.x), fconst * self.x)
 
     def test_antider_mult(self):
@@ -43,6 +43,23 @@ class TestDer(unittest.TestCase):
         f = x ** 2 - 2 * x + 5
         self.assertEqual(
             x ** 3 / 3 - 2 * (x ** 2 / 2) + 5 * x, f.antiderivative())
+
+    def test_get_multipliers(self):
+        x = self.x
+        y = self.y
+        f = 2 * x ** 3 * (x + y) ** 5 / (x / y)
+        g = {'down': {x: 1}, 'up': {y: 1, x: 3, create_const(2): 1, x + y: 5}}
+        self.assertEqual(f.get_multipliers(), g)
+
+    def test_simplify_mult(self):
+        x = self.x
+        f = x ** 3 / x / x
+        self.assertEqual(f.simplify_mult(), x)
+        f = x / x
+        self.assertEqual(f.simplify_mult(), create_const(1))
+        f = 2 * (x ** 2 / 2)
+        self.assertEqual(f.simplify_mult(), x ** 2)
+
 
 if __name__ == '__main__':
     unittest.main()

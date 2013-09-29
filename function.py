@@ -200,7 +200,7 @@ class Function:
         m ["up"] = t
         return m
 
-    def simplify_mult(self):
+    def get_coef_and_simplify(self):
         multipliers = self.get_multipliers()
         coef = 1
         up = create_const(1)
@@ -219,7 +219,32 @@ class Function:
                 coef /= float(i.c) ** multipliers["down"][i]
             elif not multipliers["up"].has_key(i):
                 down *= i ** multipliers["down"][i]
-        return coef * up / down
+        return (coef, up / down)
+
+    def simplify_mult(self):
+        parts = self.get_coef_and_simplify()
+        return parts[0] * parts[1]
+
+    def get_summands(self):
+        'Calling only if func has one summand, else will be called overloads'
+        simplified = self.get_coef_and_simplify()
+        return {simplified[1]: simplified[0]}
+
+    def simplify_sum(self):
+        free_term = 0
+        summands = self.get_summands()
+        result = create_const(0)
+        for i in summands:
+            if isinstance(i, Fconst):
+                free_term += i.c * summands[i]
+            else:
+                if summands[i] > 0:
+                    result += summands[i] * i
+                else:
+                    result -= (-summands[i]) * i
+        return result + free_term if free_term > 0 else result - (-free_term)
+
+
 
 class Fconst(Function):
 
@@ -307,6 +332,9 @@ class Fsum(Function):
     def _depends_on(self, var):
         return self.left.depends_on(var) or self.right.depends_on(var)
 
+    def get_summands(self):
+        return self.unite_int_or_dict(self.left.get_summands(), self.right.get_summands())
+
 
 class Fsub(Function):
 
@@ -331,6 +359,12 @@ class Fsub(Function):
 
     def _depends_on(self, var):
         return self.left.depends_on(var) or self.right.depends_on(var)
+
+    def get_summands(self):
+        right = self.right.get_summands()
+        for i in right:
+            right[i] *= -1
+        return self.unite_int_or_dict(self.left.get_summands(), right)
 
 
 class Fmult(Function):
@@ -529,6 +563,12 @@ class Funminus(Function):
 
     def _antider(self, var):
         return -self.arg.antiderivative()
+
+    def get_summands(self):
+        arg_summands = self.arg.get_summands()
+        for i in arg_summands:
+            arg_summands[i] *= -1
+        return arg_summands
 
 
 class Fln(Function):

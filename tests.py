@@ -60,6 +60,11 @@ class TestDer(unittest.TestCase):
         f = 2 * (x ** 2 / 2)
         self.assertEqual(f.simplify_mult(), x ** 2)
 
+    def test_simplify_sum(self):
+        x = self.x
+        y = self.y
+        self.assertEqual((x + 6 * 9 * y - 5 + x).simplify_sum(), 54 * y + 2 * x - 5)
+
 
 if __name__ == '__main__':
     unittest.main()
